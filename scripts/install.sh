@@ -2,7 +2,7 @@
 # =============================================================================
 # install.sh: Install the dracut module and rebuild initramfs
 #
-# Run this in dom0 after enroll.sh has completed.
+# Run this in dom0 after enrollment has completed (enroll.sh or enroll-dom0.sh).
 # Copies the dracut module to the system location and rebuilds initramfs.
 # =============================================================================
 

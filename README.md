@@ -5,8 +5,27 @@ with boot integrity verification via TPM2. Both factors are required. The TPM
 ensures the boot chain hasn't been tampered with, and the FIDO2 token ensures
 physical presence.
 
-**Tested with:** Trezor Safe 5. Should work with any FIDO2 token that supports
-the `hmac-secret` extension (YubiKey 5, SoloKeys Solo 2, Nitrokey FIDO2, etc.)
+**Tested with:** Trezor Safe 5. Expected to work with any FIDO2 token that
+supports the `hmac-secret` extension (YubiKey 5, SoloKeys Solo 2, Nitrokey
+FIDO2, etc.).
+
+## Why This Is Hard on Qubes
+
+Qubes isolates USB controllers in `sys-usb`, but LUKS decryption runs in dom0
+initramfs *before* `sys-usb` starts. This project keeps controllers in dom0
+during unlock and hands them to `xen-pciback` afterwards, so normal Qubes USB
+isolation is restored as soon as the system is up.
+
+Three design decisions do the work:
+
+1. **Sealed objects live in the LUKS2 header token**, not the initramfs. A
+   reseal after a kernel update only touches the LUKS header, so PCR 9 stays
+   stable: one reseal and one reboot, not a double-reseal loop.
+2. **USB handoff after decrypt.** `usb-handoff.sh` runs after LUKS is open and
+   binds controllers to `xen-pciback`, matching what `rd.qubes.hide_all_usb`
+   would have done earlier in boot.
+3. **Split enrollment.** FIDO2 credential and HMAC steps run in a USB-capable
+   qube; TPM sealing and LUKS keyslot enrollment stay in dom0.
 
 ## How It Works
 
@@ -14,7 +33,7 @@ the `hmac-secret` extension (YubiKey 5, SoloKeys Solo 2, Nitrokey FIDO2, etc.)
  TPM2 Chip                         FIDO2 Token
  ──────────                        ───────────
  Sealed salt (32 bytes)            HMAC(device_secret, salt)
- bound to PCR 0,4,7,9             user enters PIN + confirms
+ bound to PCR 0,4,7 (+9 opt.)     user enters PIN + confirms
         │                                  │
         └──── PCRs match? ───Yes───┐       │
               No → passphrase      │       │
@@ -25,11 +44,11 @@ the `hmac-secret` extension (YubiKey 5, SoloKeys Solo 2, Nitrokey FIDO2, etc.)
                             cryptsetup open
 ```
 
-The TPM seals a random salt to specific PCR values (firmware, bootloader, secure
-boot, kernel+initramfs). At boot, if the PCRs match (boot chain untampered), the
-TPM releases the salt. The FIDO2 token computes an HMAC over the salt using its
-internal device secret. The two outputs are combined via SHA-256 to derive the
-LUKS key.
+The TPM seals a random salt to specific PCR values (firmware, bootloader,
+secure boot by default; kernel+initramfs as PCR 9 when enabled). At boot, if
+the PCRs match (boot chain untampered), the TPM releases the salt. The FIDO2
+token computes an HMAC over the salt using its internal device secret. The two
+outputs are combined via SHA-256 to derive the LUKS key.
 
 ## Threat Model
 
@@ -201,13 +220,14 @@ Edit `config/tpm-fido2-luks.conf`:
 
 ```bash
 # Your LUKS device (find with: lsblk -f, blkid, or pvs)
-LUKS_DEVICE="/dev/nvme0n1p3"
+LUKS_DEVICE="/dev/disk/by-uuid/REPLACE-WITH-YOUR-LUKS-UUID"
 
 # LUKS mapped name (check /etc/crypttab)
-LUKS_NAME="luks-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx"
+LUKS_NAME="luks-REPLACE-WITH-YOUR-LUKS-UUID"
 
 # PCR banks to bind (don't change unless you know why)
-PCR_BANKS="sha256:0,4,7,9"
+# Default omits PCR 9; see PCR Selection to enable it.
+PCR_BANKS="sha256:0,4,7"
 
 # TPM persistent handle
 TPM_HANDLE="0x81000001"
@@ -312,6 +332,7 @@ window, the disk is still encrypted and you're physically present.
 
 ```
 tpm-fido2-luks/
+├── LICENSE                                # MIT
 ├── README.md                              # This file
 ├── notes.md                               # Design notes + implementation log
 ├── config/
@@ -331,12 +352,13 @@ tpm-fido2-luks/
 
 ## Supported FIDO2 Tokens
 
-Any token with `hmac-secret` extension support. Known working / expected to work:
+Any token with `hmac-secret` extension support. **Tested:** Trezor Safe 5.
+**Expected to work** (same extension, not yet tested here):
 
 | Token | USB VID:PID | Notes |
 |-------|------------|-------|
-| Trezor Safe 5 | 1209:53c1 | PIN on touchscreen, relying party confirmation |
-| Trezor Model T | 1209:53c1 | Same as Safe 5 |
+| Trezor Safe 5 | 1209:53c1 | Tested. PIN on touchscreen, relying party confirmation |
+| Trezor Model T | 1209:53c1 | Same family as Safe 5 |
 | YubiKey 5 series | 1050:0407 | PIN via host terminal, touch to confirm |
 | SoloKeys Solo 2 | 1209:beee | Touch to confirm |
 | Nitrokey FIDO2 | 20a0:42b1 | Touch to confirm |

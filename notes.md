@@ -33,9 +33,9 @@ dom0 during early boot, and we can release them to sys-usb after decryption.
                     ┌──────────────┐
                     │   TPM2 Chip  │
                     │              │
-                    │  Sealed Salt ├──── bound to PCR 0,4,7,9
+                    │  Sealed Salt ├──── bound to PCR 0,4,7
                     │  (32 bytes)  │    (firmware, bootloader,
-                    └──────┬───────┘     secure boot, kernel+initramfs)
+                    └──────┬───────┘     secure boot; +9 if enabled)
                            │
                     PCRs match?
                     ├── No → refuse (fall back to passphrase)
@@ -253,18 +253,22 @@ We intentionally skip:
 
 ```
 tpm-fido2-luks/
-├── notes.md                          # This file (writeup + implementation log)
+├── LICENSE                         # MIT
+├── README.md                       # Install guide, threat model, PCR table
+├── notes.md                        # This file (writeup + implementation log)
+├── config/
+│   └── tpm-fido2-luks.conf        # Configuration (LUKS device, PCR banks, etc.)
 ├── scripts/
-│   ├── enroll.sh                     # One-time enrollment (run in dom0)
-│   ├── reseal.sh                     # Re-seal after kernel updates (run in dom0)
-│   └── install.sh                    # Install dracut module + rebuild initramfs
-├── dracut/
-│   └── 50tpm-fido2-luks/
-│       ├── module-setup.sh           # Dracut module definition
-│       ├── tpm-fido2-unlock.sh       # Initramfs: TPM unseal → FIDO2 → LUKS open
-│       └── usb-handoff.sh            # Initramfs: release USB to xen-pciback
-└── config/
-    └── tpm-fido2-luks.conf           # Configuration (LUKS device, PCR banks, etc.)
+│   ├── enroll.sh                   # One-time direct enrollment (needs USB in dom0)
+│   ├── enroll-fido2.sh             # Split enrollment part 1 (USB-capable qube)
+│   ├── enroll-dom0.sh              # Split enrollment part 2 (dom0)
+│   ├── reseal.sh                   # Re-seal after kernel updates (run in dom0)
+│   └── install.sh                  # Install dracut module + rebuild initramfs
+└── dracut/
+    └── 50tpm-fido2-luks/
+        ├── module-setup.sh         # Dracut module definition
+        ├── tpm-fido2-unlock.sh     # Initramfs: TPM unseal → FIDO2 → LUKS open
+        └── usb-handoff.sh          # Initramfs: release USB to xen-pciback
 ```
 
 ---

@@ -24,7 +24,7 @@ CONF_FILE="${SCRIPT_DIR}/../config/tpm-fido2-luks.conf"
 # --- Load configuration (explicit parsing, no arbitrary code execution) ---
 if [[ ! -f "$CONF_FILE" ]]; then
     echo "ERROR: Configuration file not found: $CONF_FILE"
-    echo "Copy config/tpm-fido2-luks.conf.example and edit it first."
+    echo "Copy config/tpm-fido2-luks.conf and edit it first."
     exit 1
 fi
 

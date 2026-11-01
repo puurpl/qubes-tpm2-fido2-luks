@@ -295,9 +295,9 @@ else
     echo ""
     echo "=== Phase 6: Encrypted salt backup SKIPPED ==="
     echo "openssl is not available or not working."
-    echo "The salt backup is needed for re-sealing after kernel updates."
-    echo "Install a working openssl and run:"
-    echo "  sudo bash scripts/create-salt-backup.sh"
+    echo "The salt backup (salt.enc + salt.enc.mac) is needed for reseal.sh"
+    echo "after kernel updates. Install openssl and create the backup before"
+    echo "you depend on token unlock across kernel updates."
     echo "WARNING: Without the backup, you'll need to re-enroll from scratch"
     echo "if a kernel update changes the PCR values."
 fi
