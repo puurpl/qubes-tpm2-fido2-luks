@@ -55,7 +55,7 @@ outputs are combined via SHA-256 to derive the LUKS key.
 | Threat | Protected? | How |
 |--------|-----------|-----|
 | Stolen laptop (powered off) | Yes | Requires both TPM state and physical token |
-| Evil maid (tampered initramfs) | Yes | PCR 9 changes → TPM refuses to unseal |
+| Evil maid (tampered initramfs) | Yes, if PCR 9 is bound | PCR 9 changes → TPM refuses to unseal; shipped default omits PCR 9 (see PCR Selection) |
 | Stolen FIDO2 token alone | Yes | Without correct salt, HMAC output is useless |
 | Tampered boot + stolen token | Yes | Wrong PCRs = no salt = wrong key |
 | Cold boot / DMA while running | Partial | Key is in RAM while system runs (out of scope) |

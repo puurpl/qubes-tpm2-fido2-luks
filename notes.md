@@ -21,7 +21,7 @@ dom0 during early boot, and we can release them to sys-usb after decryption.
 | Threat | Protected? | How |
 |--------|-----------|-----|
 | Stolen laptop (off) | Yes | LUKS encryption + key requires both TPM state and physical token |
-| Evil maid (tampered initramfs) | Yes | TPM PCR binding. Modified initramfs changes PCR 9, TPM refuses to unseal salt |
+| Evil maid (tampered initramfs) | Yes, if PCR 9 is bound | PCR 9 changes → TPM refuses to unseal salt; shipped default omits PCR 9 (see PCR Selection) |
 | Stolen FIDO2 token alone | Yes | Token produces HMAC, but without correct salt (sealed in TPM) the output is useless |
 | Compromised initramfs + stolen token | Yes | Tampered initramfs = wrong PCRs = no salt = wrong HMAC even with real token |
 | Cold boot / DMA while running | Partial | Out of scope: key is in RAM while system is running |
