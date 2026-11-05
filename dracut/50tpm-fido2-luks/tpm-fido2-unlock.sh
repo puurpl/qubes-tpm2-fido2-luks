@@ -177,7 +177,7 @@ if ! tpm2_unseal -c "$WORK_DIR/sealed.ctx" \
         -p "session:$WORK_DIR/session.ctx" \
         -o "$WORK_DIR/salt.bin" 2>/dev/null; then
     echo "tpm-fido2: *** TPM UNSEAL FAILED: possible boot chain tampering! ***"
-    echo "tpm-fido2: This can also happen after a kernel/initramfs update."
+    echo "tpm-fido2: This can also happen after a firmware, bootloader or (if PCR 9 is bound) kernel update."
     echo "tpm-fido2: Falling back to passphrase. Run reseal.sh after booting."
     tpm2_flushcontext "$WORK_DIR/session.ctx" 2>/dev/null
     exit 0

@@ -23,7 +23,8 @@ dom0 during early boot, and we can release them to sys-usb after decryption.
 | Stolen laptop (off) | Yes | LUKS encryption + key requires both TPM state and physical token |
 | Evil maid (tampered initramfs) | Yes, if PCR 9 is bound | PCR 9 changes → TPM refuses to unseal salt; shipped default omits PCR 9 (see PCR Selection) |
 | Stolen FIDO2 token alone | Yes | Token produces HMAC, but without correct salt (sealed in TPM) the output is useless |
-| Compromised initramfs + stolen token | Yes | Tampered initramfs = wrong PCRs = no salt = wrong HMAC even with real token |
+| Compromised initramfs + stolen token | Only if PCR 9 is bound | With PCR 9 bound: tampered initramfs = wrong PCRs = no salt. The default set (0,4,7) does not measure the initramfs |
+| Laptop and token stolen together | No | Unlock needs possession and a touch only; no FIDO2 PIN is requested (a Trezor still needs its device PIN) |
 | Cold boot / DMA while running | Partial | Out of scope: key is in RAM while system is running |
 | Physical TPM attack (decapping) | No | Nation-state level; out of scope |
 

@@ -1,10 +1,12 @@
 #!/bin/bash
 # =============================================================================
-# reseal.sh: Re-seal salt in TPM after kernel/initramfs update
+# reseal.sh: Re-seal salt in TPM after a boot-chain update
 #
-# When the kernel or initramfs changes, PCR 9 changes, and the TPM can no
+# When a measured component changes (firmware: PCR 0, shim/GRUB: PCR 4,
+# Secure Boot: PCR 7, kernel/initramfs: PCR 9 if bound), the TPM can no
 # longer unseal the salt. Run this script after booting with your passphrase
-# to re-seal the salt with the new PCR values.
+# to re-seal the salt with the new PCR values. It seals to whatever booted:
+# only run it when you know which update caused the change.
 #
 # Requires: the encrypted salt backup at /etc/tpm-fido2-luks/salt.enc
 # =============================================================================

@@ -1,9 +1,11 @@
 # TPM + FIDO2 Two-Factor LUKS Unlock for Qubes OS
 
 Unlock your Qubes OS LUKS2-encrypted root drive using a hardware FIDO2 token
-with boot integrity verification via TPM2. Both factors are required. The TPM
-ensures the boot chain hasn't been tampered with, and the FIDO2 token ensures
-physical presence.
+plus a TPM2 check of the measured boot state. Both factors are required. The
+TPM releases its half of the key only if the measured boot state matches
+enrollment (by default: firmware, bootloader binaries and Secure Boot state;
+kernel and initramfs only when PCR 9 is bound), and the FIDO2 token requires
+physical possession and a touch or confirmation.
 
 **Tested with:** Trezor Safe 5. Expected to work with any FIDO2 token that
 supports the `hmac-secret` extension (YubiKey 5, SoloKeys Solo 2, Nitrokey
@@ -33,7 +35,7 @@ Three design decisions do the work:
  TPM2 Chip                         FIDO2 Token
  ──────────                        ───────────
  Sealed salt (32 bytes)            HMAC(device_secret, salt)
- bound to PCR 0,4,7 (+9 opt.)     user enters PIN + confirms
+ bound to PCR 0,4,7 (+9 opt.)     user touches / confirms
         │                                  │
         └──── PCRs match? ───Yes───┐       │
               No → passphrase      │       │
@@ -46,7 +48,7 @@ Three design decisions do the work:
 
 The TPM seals a random salt to specific PCR values (firmware, bootloader,
 secure boot by default; kernel+initramfs as PCR 9 when enabled). At boot, if
-the PCRs match (boot chain untampered), the TPM releases the salt. The FIDO2
+the PCRs match (measured boot state unchanged), the TPM releases the salt. The FIDO2
 token computes an HMAC over the salt using its internal device secret. The two
 outputs are combined via SHA-256 to derive the LUKS key.
 
@@ -57,7 +59,10 @@ outputs are combined via SHA-256 to derive the LUKS key.
 | Stolen laptop (powered off) | Yes | Requires both TPM state and physical token |
 | Evil maid (tampered initramfs) | Yes, if PCR 9 is bound | PCR 9 changes → TPM refuses to unseal; shipped default omits PCR 9 (see PCR Selection) |
 | Stolen FIDO2 token alone | Yes | Without correct salt, HMAC output is useless |
-| Tampered boot + stolen token | Yes | Wrong PCRs = no salt = wrong key |
+| Tampered firmware or bootloader binary + stolen token | Yes | PCR 0/4/7 change = no salt = wrong key |
+| Tampered kernel, initramfs or grub.cfg + stolen token | Only if PCR 9 is bound | The default PCR set (0,4,7) does not measure them |
+| Laptop and token stolen together | No | Unlock needs possession and a touch only: this tool does not request the FIDO2 PIN. A Trezor still requires its own device PIN after power-up |
+| Kernel command-line edit at the GRUB prompt (e.g. `rd.break`) | No | PCR 8 is not bound. Set a GRUB password |
 | Cold boot / DMA while running | Partial | Key is in RAM while system runs (out of scope) |
 
 ## Prerequisites
@@ -169,7 +174,7 @@ vi config/tpm-fido2-luks.conf    # Set LUKS_DEVICE, LUKS_NAME, USB VID/PID
 #    Requires: fido2-tools, libfido2, libcbor
 cd /path/to/tpm-fido2-luks
 sudo bash scripts/enroll-fido2.sh
-# Token will prompt for PIN + confirmation (twice)
+# Token will ask for confirmation (twice); a Trezor also asks for its device PIN if locked
 # Artifacts saved to /tmp/tpm-fido2-artifacts/
 ```
 
@@ -191,14 +196,17 @@ sudo bash scripts/install.sh
 
 # 6. Reboot and test
 #    - Plug in token before powering on (or within 30s)
-#    - Enter PIN on token when prompted
+#    - Unlock the token if it has a device PIN (Trezor)
 #    - Confirm relying party
 #    - Keep passphrase ready as fallback
 ```
 
-**Security note:** The enrollment qube briefly sees the HMAC secret. Use a
-DispVM if possible and destroy it after transferring artifacts. The dom0
-script automatically shreds the artifact bundle after enrollment.
+**Security note:** The enrollment qube generates the salt and computes the
+HMAC. Together those two values ARE the LUKS key: anyone who copies them can
+unlock the drive without the TPM or the token, forever. Use a DispVM (never
+sys-usb) and destroy it after transferring artifacts. The dom0 script shreds
+the extracted artifact directory after enrollment, but not the downloaded
+tarball: run `shred -u /tmp/tpm-fido2-artifacts.tar.gz` in dom0 yourself.
 
 ### Alternative: Direct Enrollment
 
@@ -244,10 +252,16 @@ FIDO2_USB_PID="53c1"
 FIDO2_TIMEOUT=30
 ```
 
-## After Kernel Updates
+## After Firmware, Bootloader or Kernel Updates
 
-Kernel or initramfs updates change PCR 9, breaking the TPM seal. This is
-expected and by design. It proves the boot chain changed.
+With the default PCR set (0,4,7), firmware updates (PCR 0), shim/GRUB updates
+(PCR 4) and Secure Boot changes (PCR 7) break the TPM seal. Kernel and
+initramfs updates break it only when PCR 9 is bound. This is expected: it
+shows the measured boot state changed.
+
+**Only reseal when you know which update caused the change.** `reseal.sh`
+seals to whatever booted, including a tampered boot, and typing the
+passphrase into an unverified boot is itself the exposure.
 
 ```bash
 # 1. Boot normally. TPM unseal will fail, passphrase prompt appears
@@ -267,12 +281,14 @@ LUKS2 header (not the initramfs), so resealing doesn't change PCR 9.
 | PCR | Measures | Why | Default |
 |-----|----------|-----|---------|
 | 0 | Core firmware (BIOS/UEFI) | Detect firmware tampering | Yes |
-| 4 | Bootloader (GRUB) + config | Detect bootloader replacement | Yes |
+| 4 | Bootloader binaries (shim, GRUB) | Detect bootloader replacement | Yes |
 | 7 | Secure Boot state | Detect policy changes | Yes |
 | 9 | Kernel + initramfs | Detect kernel/initramfs tampering | No* |
 
 Intentionally skipped: PCR 1 (firmware config, too fragile), PCR 8 (GRUB
-commands, changes with grub.cfg edits).
+commands, changes with grub.cfg edits). Because PCR 8 is not bound, edits to
+the kernel command line at the GRUB prompt are not detected: set a GRUB
+password.
 
 **\*PCR 9 requires GRUB TPM measurements.** Check if it's active:
 
@@ -282,7 +298,8 @@ tpm2_pcrread sha256:9
 
 If the value is all zeros, GRUB isn't measuring the kernel/initramfs into the
 TPM. Without PCR 9, the sealed salt won't detect initramfs tampering (evil
-maid). PCRs 0, 4, and 7 still protect against firmware and bootloader attacks.
+maid). PCRs 0, 4, and 7 still detect firmware changes, bootloader-binary
+replacement and Secure Boot policy changes.
 
 ### Enabling PCR 9 (GRUB TPM Measurements)
 
@@ -305,14 +322,19 @@ sudo grub2-mkconfig -o /boot/grub2/grub.cfg
 tpm2_pcrread sha256:9
 ```
 
-If PCR 9 shows non-zero values after reboot, add it to your config:
+If PCR 9 shows non-zero values after reboot, bind it. `reseal.sh` and the
+initramfs read the installed `/etc/tpm-fido2-luks/pcr_banks`, not
+`config/tpm-fido2-luks.conf`, so change that file and rebuild:
 
-```
-PCR_BANKS="sha256:0,4,7,9"
+```bash
+echo "sha256:0,4,7,9" | sudo tee /etc/tpm-fido2-luks/pcr_banks
+sudo dracut -f            # bakes the new PCR list into the initramfs
+# Reboot: unseal fails once (old policy), enter the passphrase
+sudo bash scripts/reseal.sh
 ```
 
-Then re-run `reseal.sh` to bind to the new PCR set. Note: kernel updates will
-change PCR 9 and require resealing. This is the intended behavior.
+From then on, kernel and initramfs updates change PCR 9 and require
+resealing. This is the intended behavior.
 
 ## How Qubes USB Isolation Is Preserved
 
@@ -359,7 +381,7 @@ Any token with `hmac-secret` extension support. **Tested:** Trezor Safe 5.
 |-------|------------|-------|
 | Trezor Safe 5 | 1209:53c1 | Tested. PIN on touchscreen, relying party confirmation |
 | Trezor Model T | 1209:53c1 | Same family as Safe 5 |
-| YubiKey 5 series | 1050:0407 | PIN via host terminal, touch to confirm |
+| YubiKey 5 series | 1050:0407 | Touch to confirm (this tool does not request the FIDO2 PIN) |
 | SoloKeys Solo 2 | 1209:beee | Touch to confirm |
 | Nitrokey FIDO2 | 20a0:42b1 | Touch to confirm |
 | Google Titan | 18d1:5026 | Touch to confirm |
